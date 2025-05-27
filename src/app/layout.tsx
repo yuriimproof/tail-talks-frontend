@@ -1,22 +1,19 @@
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Web3Provider } from "@/components/providers/web3-provider";
+import { Toaster } from "@/components/ui/toaster";
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-	variable: "--font-geist-sans",
+const inter = Inter({
 	subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-	variable: "--font-geist-mono",
-	subsets: ["latin"],
+	variable: "--font-inter",
 });
 
 export const metadata: Metadata = {
-	title: "Tail Talks - Web3 Frontend",
+	title: "TailTalks - NFT Social Network for Pet Owners",
 	description:
-		"Modern Web3 frontend built with Next.js, Tailwind CSS, and shadcn/ui",
+		"Social network for pet owners where every pet deserves to be a star with NFT",
 };
 
 export default function RootLayout({
@@ -25,11 +22,17 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
-			<body
-				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-			>
-				<Web3Provider>{children}</Web3Provider>
+		<html lang="en" suppressHydrationWarning>
+			<body className={`${inter.variable} font-sans antialiased`}>
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="dark"
+					enableSystem
+					disableTransitionOnChange
+				>
+					<Web3Provider>{children}</Web3Provider>
+					<Toaster />
+				</ThemeProvider>
 			</body>
 		</html>
 	);

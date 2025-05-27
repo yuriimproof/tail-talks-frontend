@@ -1,15 +1,15 @@
 import { createConfig, http } from "wagmi";
-import { mainnet, sepolia } from "wagmi/chains";
+import { bsc } from "wagmi/chains";
 import { injected, walletConnect } from "wagmi/connectors";
 
-const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!;
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
 export const config = createConfig({
-	chains: [mainnet, sepolia],
+	chains: [bsc],
 	connectors: [
 		injected(),
 		walletConnect({
-			projectId,
+			projectId: projectId ?? "",
 			metadata: {
 				name: "Tail Talks",
 				description: "Web3 Frontend App",
@@ -19,8 +19,7 @@ export const config = createConfig({
 		}),
 	],
 	transports: {
-		[mainnet.id]: http(),
-		[sepolia.id]: http(),
+		[bsc.id]: http(),
 	},
 });
 

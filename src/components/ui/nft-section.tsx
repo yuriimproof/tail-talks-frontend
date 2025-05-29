@@ -3,17 +3,11 @@
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useMintNFT, useStarOwnerMint } from "@/lib/contracts/hooks";
-// @ts-ignore
-import { create } from "ipfs-http-client";
 import { AlertCircle, Image as ImageIcon, Star, Upload } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 import { formatEther } from "viem";
 import { useAccount, useChainId } from "wagmi";
-
-// Configure IPFS client to connect to your local node
-const ipfs = create({
-	url: "http://127.0.0.1:5001/api/v0",
-});
 
 export function NFTSection() {
 	const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -23,16 +17,17 @@ export function NFTSection() {
 	const {
 		mint: mintStarKeeper,
 		isLoading: isMintingStarKeeper,
-		error: mintStarKeeperError,
+		// error: mintStarKeeperError,
 		mintPrice,
 	} = useMintNFT();
 	const {
 		mint: mintStarOwner,
 		isLoading: isMintingStarOwner,
-		error: mintStarOwnerError,
-		mintPrice: starOwnerMintPrice,
+		// error: mintStarOwnerError,
+		// mintPrice: starOwnerMintPrice,
 	} = useStarOwnerMint();
-	const { address, isConnected } = useAccount();
+	// const { address, isConnected } = useAccount();
+	const { isConnected } = useAccount();
 	const chainId = useChainId();
 	const { toast } = useToast();
 
@@ -58,6 +53,15 @@ export function NFTSection() {
 	const uploadToIPFS = async (file: File): Promise<string> => {
 		try {
 			setIsUploading(true);
+
+			// Dynamically import IPFS client to avoid build-time issues
+			// @ts-expect-error - IPFS client types are not properly resolved due to package.json exports field limitations
+			const { create } = await import("ipfs-http-client");
+
+			// Configure IPFS client to connect to your local node
+			const ipfs = create({
+				url: "http://127.0.0.1:5001/api/v0",
+			});
 
 			// Convert file to buffer
 			const buffer = await file.arrayBuffer();
@@ -259,9 +263,11 @@ export function NFTSection() {
 						{/* NFT Card */}
 						<div className="relative z-10 bg-gradient-to-br from-purple-900/80 to-slate-900/80 backdrop-blur-sm rounded-3xl p-6 border border-purple-500/30 shadow-2xl">
 							<div className="relative overflow-hidden rounded-2xl mb-4">
-								<img
+								<Image
 									src="/images/nft-image.jpg"
 									alt="Tail Talks NFT"
+									width={320}
+									height={320}
 									className="w-64 h-64 lg:w-80 lg:h-80 object-cover"
 								/>
 								<div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />

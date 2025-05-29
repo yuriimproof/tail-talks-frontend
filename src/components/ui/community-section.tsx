@@ -18,6 +18,7 @@ import {
 	WalletIcon,
 } from "@/lib/icons";
 import { Copy, Send } from "lucide-react";
+import Image from "next/image";
 
 // Icon renderer function
 const renderIcon = (iconType: string) => {
@@ -155,10 +156,12 @@ export function CommunitySection() {
 									className="bg-slate-800/50 rounded-2xl p-8 border border-purple-500/20"
 								>
 									<div className="w-40 h-40 mx-auto mb-8 flex items-center justify-center">
-										<img
+										<Image
 											src={card.imageUrl}
 											alt={`Money icon ${card.id}`}
 											className="w-full h-full object-contain"
+											width={160}
+											height={160}
 										/>
 									</div>
 									<div className="space-y-4">

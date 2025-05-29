@@ -4,7 +4,7 @@ import {
 	useWaitForTransactionReceipt,
 	useWriteContract,
 } from "wagmi";
-import { STAR_KEEPER, STAR_KEEPER_FACTORY, STAR_OWNER } from "./abis";
+import { STAR_KEEPER, STAR_OWNER } from "./abis";
 import { CONTRACT_ADDRESSES } from "./index";
 import type {
 	CollectionInfo,
@@ -97,7 +97,19 @@ export function useNFTBalance(address: `0x${string}`): ContractResult<bigint> {
 // Hook to mint NFT with ETH/BNB
 export function useMintNFT() {
 	const contractAddress = useContractAddress("starKeeper");
-	const { writeContract, data: hash, error, isPending } = useWriteContract();
+	const {
+		writeContractAsync,
+		data: hash,
+		error,
+		isPending,
+	} = useWriteContract();
+
+	// Get the current mint price from the contract
+	const { data: mintPrice } = useReadContract({
+		address: contractAddress,
+		abi: STAR_KEEPER,
+		functionName: "mintPrice",
+	}) as { data: bigint | undefined };
 
 	const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
 		hash,
@@ -112,16 +124,23 @@ export function useMintNFT() {
 				};
 			}
 
-			writeContract({
+			if (!mintPrice) {
+				return {
+					success: false,
+					error: "Could not fetch mint price",
+				};
+			}
+
+			const txHash = await writeContractAsync({
 				address: contractAddress,
 				abi: STAR_KEEPER,
 				functionName: "mint",
+				value: mintPrice, // Send the mint price as value
 			});
 
 			return {
-				hash,
-				success: isSuccess,
-				error: error?.message,
+				hash: txHash,
+				success: true,
 			};
 		} catch (err) {
 			return {
@@ -136,6 +155,7 @@ export function useMintNFT() {
 		isLoading: isPending || isConfirming,
 		isSuccess,
 		error: error?.message,
+		mintPrice, // Also return the mint price for display purposes
 	};
 }
 
@@ -230,94 +250,79 @@ export function useMintWithToken() {
 	};
 }
 
-// Token Contract Hooks
-
-// Hook to read token balance
-export function useTokenBalance(
-	address: `0x${string}`,
-): ContractResult<bigint> {
-	const contractAddress = useContractAddress("paymentToken");
-
-	const { data, error, isLoading } = useReadContract({
-		address: contractAddress,
-		abi: STAR_OWNER,
-		functionName: "balanceOf",
-		args: [address],
-	});
-
-	return {
-		data: data as bigint,
-		error: error?.message,
-		isLoading,
-	};
-}
-
-// Hook to read token total supply
-export function useTokenTotalSupply(): ContractResult<bigint> {
-	const contractAddress = useContractAddress("paymentToken");
-
-	const { data, error, isLoading } = useReadContract({
-		address: contractAddress,
-		abi: STAR_OWNER,
-		functionName: "totalSupply",
-	});
-
-	return {
-		data: data as bigint,
-		error: error?.message,
-		isLoading,
-	};
-}
-
 // Factory Contract Hooks (if needed)
+// Note: The factory contract now uses a proposal-based system
+// You would need to implement proposal creation and voting hooks if needed
 
-// Hook to create new collection via factory
-export function useCreateCollection() {
-	const contractAddress = useContractAddress("factory");
-	const { writeContract, data: hash, error, isPending } = useWriteContract();
+// STAR_OWNER NFT Contract Hooks
+export function useStarOwnerMint() {
+	const contractAddress = useContractAddress("starOwner");
+	const chainId = useChainId();
+
+	const {
+		writeContractAsync,
+		data: hash,
+		error,
+		isPending,
+	} = useWriteContract();
+
+	// Get the current mint price from the contract
+	const { data: mintPrice, error: mintPriceError } = useReadContract({
+		address: contractAddress,
+		abi: STAR_OWNER,
+		functionName: "mintPrice",
+	}) as { data: bigint | undefined; error: Error | null };
+
+	// Log for debugging
+	console.log("StarOwner Contract Debug:", {
+		contractAddress,
+		chainId,
+		mintPrice: mintPrice?.toString(),
+		mintPriceError: mintPriceError?.message,
+	});
 
 	const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
 		hash,
 	});
 
-	const createCollection = async (
-		name: string,
-		symbol: string,
-		maxSupply: bigint,
-		mintPrice: bigint,
-		tokenMintPrice: bigint,
-		paymentToken: `0x${string}`,
-		baseTokenURI: string,
-		collectionImageURI: string,
-	): Promise<TransactionResult> => {
+	const mint = async (tokenURI: string): Promise<TransactionResult> => {
 		try {
-			if (!contractAddress) {
+			if (chainId !== 56) {
 				return {
 					success: false,
-					error: "Factory contract address not found for current network",
+					error: `Пожалуйста, переключитесь на BSC Mainnet (текущая сеть: ${chainId})`,
 				};
 			}
 
-			writeContract({
+			if (!contractAddress) {
+				return {
+					success: false,
+					error: "Contract address not found for current network",
+				};
+			}
+
+			// For free NFTs, mintPrice can be 0 or undefined
+			if (mintPrice === undefined && mintPriceError) {
+				return {
+					success: false,
+					error: mintPriceError.message || "Could not fetch mint price",
+				};
+			}
+
+			// Use 0 if mintPrice is undefined (for free NFTs)
+			const valueToSend = mintPrice || BigInt(0);
+
+			const txHash = await writeContractAsync({
 				address: contractAddress,
-				abi: STAR_KEEPER_FACTORY,
-				functionName: "createCollection",
-				args: [
-					name,
-					symbol,
-					maxSupply,
-					mintPrice,
-					tokenMintPrice,
-					paymentToken,
-					baseTokenURI,
-					collectionImageURI,
-				],
+				abi: STAR_OWNER,
+				functionName: "mint",
+				args: [tokenURI],
+				value: valueToSend, // Send 0 for free NFTs
 			});
 
 			return {
-				hash,
-				success: isSuccess,
-				error: error?.message,
+				hash: txHash,
+				success: true,
 			};
 		} catch (err) {
 			return {
@@ -328,9 +333,10 @@ export function useCreateCollection() {
 	};
 
 	return {
-		createCollection,
+		mint,
 		isLoading: isPending || isConfirming,
 		isSuccess,
 		error: error?.message,
+		mintPrice, // Also return the mint price for display purposes
 	};
 }

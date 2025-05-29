@@ -1,16 +1,106 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, Star, Upload } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useMintNFT, useStarOwnerMint } from "@/lib/contracts/hooks";
+// @ts-ignore
+import { create } from "ipfs-http-client";
+import { AlertCircle, Image as ImageIcon, Star, Upload } from "lucide-react";
 import { useState } from "react";
+import { formatEther } from "viem";
+import { useAccount, useChainId } from "wagmi";
+
+// Configure IPFS client to connect to your local node
+const ipfs = create({
+	url: "http://127.0.0.1:5001/api/v0",
+});
 
 export function NFTSection() {
 	const [selectedImage, setSelectedImage] = useState<File | null>(null);
 	const [imagePreview, setImagePreview] = useState<string | null>(null);
+	const [uploadError, setUploadError] = useState<string | null>(null);
+	const [isUploading, setIsUploading] = useState(false);
+	const {
+		mint: mintStarKeeper,
+		isLoading: isMintingStarKeeper,
+		error: mintStarKeeperError,
+		mintPrice,
+	} = useMintNFT();
+	const {
+		mint: mintStarOwner,
+		isLoading: isMintingStarOwner,
+		error: mintStarOwnerError,
+		mintPrice: starOwnerMintPrice,
+	} = useStarOwnerMint();
+	const { address, isConnected } = useAccount();
+	const chainId = useChainId();
+	const { toast } = useToast();
+
+	// Check if on correct network
+	const isCorrectNetwork = chainId === 56;
+
+	// Validation constants
+	const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
+	const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png"];
+
+	const validateFile = (file: File): string | null => {
+		if (!ALLOWED_TYPES.includes(file.type)) {
+			return "Пожалуйста, загрузите файл изображения (JPG, PNG)";
+		}
+
+		if (file.size > MAX_FILE_SIZE) {
+			return `Размер файла слишком большой. Максимальный размер: ${MAX_FILE_SIZE / (1024 * 1024)}MB`;
+		}
+
+		return null;
+	};
+
+	const uploadToIPFS = async (file: File): Promise<string> => {
+		try {
+			setIsUploading(true);
+
+			// Convert file to buffer
+			const buffer = await file.arrayBuffer();
+
+			// Upload to IPFS
+			const result = await ipfs.add(Buffer.from(buffer));
+			const ipfsUrl = `ipfs://${result.cid.toString()}`;
+
+			console.log("File uploaded to IPFS:", ipfsUrl);
+			return ipfsUrl;
+		} catch (error) {
+			console.error("IPFS upload error:", error);
+
+			// Provide helpful error messages
+			if (error instanceof Error) {
+				if (error.message.includes("fetch")) {
+					throw new Error(
+						"Не удается подключиться к IPFS. Убедитесь, что IPFS daemon запущен на порту 5001. " +
+							"Запустите: ipfs daemon",
+					);
+				}
+			}
+
+			throw new Error(
+				"Ошибка загрузки в IPFS. Проверьте подключение к IPFS node.",
+			);
+		} finally {
+			setIsUploading(false);
+		}
+	};
 
 	const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0];
 		if (file) {
+			setUploadError(null);
+
+			const validationError = validateFile(file);
+			if (validationError) {
+				setUploadError(validationError);
+				event.target.value = "";
+				return;
+			}
+
 			setSelectedImage(file);
 			const reader = new FileReader();
 			reader.onload = (e) => {
@@ -20,12 +110,116 @@ export function NFTSection() {
 		}
 	};
 
-	const handleMintNFT = () => {
-		if (selectedImage) {
-			// Here you would implement the actual NFT minting logic
-			console.log("Minting NFT with image:", selectedImage.name);
-			// For now, just show an alert
-			alert("NFT minting functionality will be implemented soon!");
+	const handleBuyStarKeeper = async () => {
+		if (!isConnected) {
+			toast({
+				title: "Ошибка",
+				description: "Пожалуйста, подключите кошелек!",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		try {
+			const result = await mintStarKeeper();
+			if (!result.success) {
+				throw new Error(result.error || "Failed to mint NFT");
+			}
+			toast({
+				title: "Успех!",
+				description: "NFT успешно создан!",
+			});
+		} catch (err) {
+			console.error("Error minting StarKeeper NFT:", err);
+			const error = err as Error;
+			toast({
+				title: "Ошибка",
+				description: error.message || "Не удалось создать NFT",
+				variant: "destructive",
+			});
+		}
+	};
+
+	const handleMintStarOwner = async () => {
+		if (!isConnected) {
+			toast({
+				title: "Ошибка",
+				description: "Пожалуйста, подключите кошелек!",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		if (!selectedImage) {
+			toast({
+				title: "Ошибка",
+				description: "Пожалуйста, загрузите изображение!",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		try {
+			// Upload image to IPFS
+			const imageIpfsUrl = await uploadToIPFS(selectedImage);
+
+			// Create metadata
+			const metadata = {
+				name: "Tail Talks Pet NFT",
+				description: "A unique pet NFT from Tail Talks collection",
+				image: imageIpfsUrl,
+			};
+
+			// Convert metadata to Blob and create File
+			const metadataFile = new File(
+				[JSON.stringify(metadata)],
+				"metadata.json",
+				{ type: "application/json" },
+			);
+
+			// Upload metadata to IPFS
+			const metadataIpfsUrl = await uploadToIPFS(metadataFile);
+
+			// Mint NFT with metadata URL
+			const result = await mintStarOwner(metadataIpfsUrl);
+			if (!result.success) {
+				// Provide more specific error messages
+				let errorMessage = "Не удалось создать NFT";
+
+				if (result.error?.includes("insufficient funds")) {
+					errorMessage =
+						"Недостаточно средств для оплаты транзакции и mint price";
+				} else if (
+					result.error?.includes("user rejected") ||
+					result.error?.includes("User denied")
+				) {
+					errorMessage = "Транзакция была отменена";
+				} else if (result.error?.includes("mint price")) {
+					errorMessage = "Не удалось получить цену минтинга";
+				} else if (result.error?.includes("Contract address not found")) {
+					errorMessage = "Смарт-контракт не найден для текущей сети";
+				} else if (result.error) {
+					errorMessage = result.error;
+				}
+
+				throw new Error(errorMessage);
+			}
+
+			toast({
+				title: "Успех!",
+				description: "NFT успешно создан!",
+			});
+			// Reset form
+			setSelectedImage(null);
+			setImagePreview(null);
+		} catch (err) {
+			console.error("Error creating StarOwner NFT:", err);
+			const error = err as Error;
+			toast({
+				title: "Ошибка",
+				description: error.message || "Не удалось создать NFT",
+				variant: "destructive",
+			});
 		}
 	};
 
@@ -77,10 +271,33 @@ export function NFTSection() {
 								<h3 className="text-2xl font-bold mb-2">
 									Уникальная серия Tail Talks
 								</h3>
-								<p className="text-3xl font-bold text-purple-400 mb-4">200 $</p>
-								<Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-3 text-lg font-semibold rounded-xl">
-									Купить NFT
+								<p className="text-3xl font-bold text-purple-400 mb-4">
+									{mintPrice && isCorrectNetwork
+										? mintPrice === BigInt(0)
+											? "Бесплатно"
+											: `${formatEther(mintPrice)} BNB`
+										: isConnected && !isCorrectNetwork
+											? "Переключитесь на BSC Mainnet"
+											: "Loading..."}
+								</p>
+								<Button
+									onClick={handleBuyStarKeeper}
+									disabled={
+										isMintingStarKeeper || !isConnected || !isCorrectNetwork
+									}
+									className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white py-3 text-lg font-semibold rounded-xl"
+								>
+									{isMintingStarKeeper
+										? "Создание NFT..."
+										: !isCorrectNetwork
+											? "Переключитесь на BSC Mainnet"
+											: "Купить NFT"}
 								</Button>
+								{!isConnected && (
+									<p className="text-white/70 text-sm mt-3">
+										Для покупки NFT необходимо подключить кошелек
+									</p>
+								)}
 							</div>
 						</div>
 					</div>
@@ -159,18 +376,38 @@ export function NFTSection() {
 							Загрузите фотографию вашего питомца и превратите её в уникальный
 							NFT-токен
 						</p>
+						{isConnected && !isCorrectNetwork && (
+							<div className="mt-4 p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-xl max-w-lg mx-auto">
+								<p className="text-yellow-400 font-medium">
+									⚠️ Пожалуйста, переключитесь на BSC Mainnet для создания NFT
+								</p>
+							</div>
+						)}
+						{isConnected && isCorrectNetwork && (
+							<p className="text-2xl font-bold text-purple-400 mt-4">
+								Цена: Бесплатно
+							</p>
+						)}
 					</div>
 
 					<div className="max-w-2xl mx-auto">
 						<div className="bg-slate-800/50 rounded-2xl p-8 border border-purple-500/20">
 							{/* Upload Area */}
 							<div className="mb-8">
+								{uploadError && (
+									<div className="mb-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl flex items-center gap-3">
+										<AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+										<p className="text-red-400 text-sm">{uploadError}</p>
+									</div>
+								)}
 								<label htmlFor="image-upload" className="block mb-4">
 									<div
 										className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 ${
 											imagePreview
 												? "border-purple-500 bg-purple-500/10"
-												: "border-purple-500/30 hover:border-purple-500/50 hover:bg-purple-500/5"
+												: uploadError
+													? "border-red-500/50 hover:border-red-500/70 hover:bg-red-500/5"
+													: "border-purple-500/30 hover:border-purple-500/50 hover:bg-purple-500/5"
 										}`}
 									>
 										{imagePreview ? (
@@ -194,7 +431,7 @@ export function NFTSection() {
 														Загрузите фото вашего питомца
 													</p>
 													<p className="text-white/60">
-														Поддерживаются форматы: JPG, PNG, GIF (макс. 10MB)
+														Поддерживаются форматы: JPG, PNG (макс. 10MB)
 													</p>
 												</div>
 												<div className="flex items-center justify-center gap-2 text-purple-400">
@@ -208,7 +445,7 @@ export function NFTSection() {
 								<input
 									id="image-upload"
 									type="file"
-									accept="image/*"
+									accept="image/jpeg,image/jpg,image/png"
 									onChange={handleImageUpload}
 									className="hidden"
 								/>
@@ -217,24 +454,34 @@ export function NFTSection() {
 							{/* Mint Button */}
 							<div className="text-center">
 								<Button
-									onClick={handleMintNFT}
-									disabled={!selectedImage}
+									onClick={handleMintStarOwner}
+									disabled={
+										!selectedImage ||
+										isMintingStarOwner ||
+										isUploading ||
+										!isConnected ||
+										!isCorrectNetwork
+									}
 									className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed text-white py-4 text-lg font-semibold rounded-xl transition-all duration-300"
 								>
-									{selectedImage ? (
+									{isUploading ? (
+										"Загрузка изображения..."
+									) : isMintingStarOwner ? (
+										"Создание NFT..."
+									) : !isCorrectNetwork ? (
+										"Переключитесь на BSC Mainnet"
+									) : (
 										<>
 											<Star className="w-5 h-5 mr-2" />
 											Создать NFT из фото
 										</>
-									) : (
-										"Сначала загрузите фото"
 									)}
 								</Button>
-								{/* {selectedImage && (
-									<p className="text-white/60 text-sm mt-3">
-										Стоимость создания NFT: 50 TAIL токенов
+								{!isConnected && (
+									<p className="text-white/70 text-sm mt-3">
+										Для создания NFT необходимо подключить кошелек
 									</p>
-								)} */}
+								)}
 							</div>
 						</div>
 					</div>

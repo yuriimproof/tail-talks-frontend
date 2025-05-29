@@ -3,9 +3,8 @@ export const CONTRACT_ADDRESSES = {
 	// BSC Mainnet
 	[56]: {
 		// Add your mainnet contract addresses here
-		starKeeper: "0x0000000000000000000000000000000000000000" as const,
-		paymentToken: "0x0000000000000000000000000000000000000000" as const,
-		factory: "0x0000000000000000000000000000000000000000" as const,
+		starKeeper: "0xA6D6e0D11cDe8883e31d3510a51816bb8827c23E" as const,
+		starOwner: "0xB6b0AD983760a26f43897A823AFb0c7075ca0EDF" as const,
 	},
 } as const;
 
